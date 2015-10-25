@@ -1,0 +1,109 @@
+---
+title: "Coursera MLProject"
+author: "Emily Carr"
+date: "October 25, 2015"
+output: 
+  html_document: 
+    toc: yes
+---
+
+First I load the required packages, read in the data, and set the seed to 1..
+```{r}
+    library(caret)
+    library(randomForest)
+    training <- read.csv("pml-training.csv")
+    testing <- read.csv("pml-testing.csv")
+    set.seed(1)
+```
+
+Next, I make sure the data is formatted correctly before it can be modeled. I confirm the classe variable is a factor variable, and I change any blank values to NA.
+```{r}
+    class(training$classe) #result: [1] "factor"
+    
+    for (i in 1:nrow(training)) {
+        for (j in 1:ncol(training)) {
+            if (is.na(training[i,j]) == FALSE) {
+                if (training[i,j] == "") {
+                    training[i,j] <- NA
+                }
+            }
+        }
+    }
+    for (i in 1:nrow(testing)) {
+        for (j in 1:ncol(testing)) {
+            if (is.na(testing[i,j]) == FALSE) {
+                if (testing[i,j] == "") {
+                    testing[i,j] <- NA
+                }
+            }
+        }
+    } 
+
+```
+
+Inspection of the data shows that many of the variables are NA for most observations, so I assume those do not offer any relevance to a prediction model and remove those variables from both the training and test sets, creating two new data sets: training_noNA and testing_noNA.
+I first change the last column of the testing data set to be named "classe" so it matches the training set.
+I use criteria of 50% or more NA observations for training set and 100% NA observations for test set since it is smaller.
+I then confirm that the variables are the same in the training_noNA and testing_noNA sets.
+```{r}
+    colnames(testing)[160] <- "classe"
+    
+    training_noNA <- training
+    for (j in 1:ncol(training)) {
+        if ((sum(is.na(training[,j])) >= 0.5*nrow(training)) & (colnames(training[j]) %in% colnames(training_noNA))) {
+           c <- which(colnames(training_noNA)==colnames(training[j]))
+           training_noNA <- training_noNA[,-c]
+        }
+    }
+    
+    testing_noNA <- testing
+    for (j in 1:ncol(testing)) {
+        if ((sum(is.na(testing[,j])) == 20) & (colnames(testing[j]) %in% colnames(testing_noNA))) {
+           c <- which(colnames(testing_noNA)==colnames(testing[j]))
+           testing_noNA <- testing_noNA[,-c]
+        }
+    }
+    
+    length(training_noNA)==length(testing_noNA) ## result: [1] TRUE
+    sum(as.numeric(colnames(training_noNA)==colnames(testing_noNA))) == length(training_noNA) ## result: [1] TRUE
+
+```
+
+After trying to run several models on the training_noNA data set, I found that the data set was too large and I couldn't build models due to memory issues. 
+So I created a new data set using half the training data, hoping that would be small enough: training_noNA_small
+```{r}
+    inTrainSmall <- createDataPartition(y=training_noNA$classe, p=0.5, list=FALSE)
+    training_noNA_small <- training_noNA[inTrainSmall,]
+    
+```
+
+I chose the Random Forest method to build my model after much trial and error with other methods (esp. glm; the highest accuracy I could get was ~67%).
+I tried implementing preprocessing with various methods & some trainControl options, but I did not see any improvement in the model, so I left them out and used all defaults for except x & y.
+I used variables 11:59 because I considered the first 10 (e.g. user name) to be irrelevant to the prediction (they would have resulted in overfitting). The 60th variable is left out because it is the one we want to predict.
+```{r}
+    modelRF <- randomForest(x=training_noNA_small[,11:59], y=training_noNA_small$classe)
+```
+
+The model above results in an OOB error estimate of 1.43% (see OOB from modelRF_TC_err[500,] below), which is arguably unbiased and eliminates the need for cross-validation (see http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm#ooberr).
+However, I do perform cross validation as a precaution.
+For the 49 variables I'm using, the rfcv function gives a cross validation error rate/out-of-sample error rate of 1.89%, slightly higher than the OOB error estimate.
+```{r}
+    modelRF$confusion
+    modelRF_err <- modelRF$err.rate
+    dim(modelRF_err)
+    modelRF_err[500,]
+    
+    crossvalRF <- rfcv(training_noNA_small[,11:59], training_noNA_small$classe)
+    crossvalRF$error.cv
+```
+
+With the random forest model built and cross-validated, I then make a prediction on the training set and testing set, and I'm happy with the results.
+```{r}
+    predictRF_training <- predict(modelRF, training_noNA_small)
+    table(predictRF_training, training_noNA_small$classe)
+    
+    predictRF_testing <- predict(modelRF, testing_noNA)
+    predictRF_testing # this resulted in 100% accuracy (gave the correct answer for all 20 questions)
+    
+```
+
